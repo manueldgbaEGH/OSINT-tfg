@@ -8,7 +8,7 @@ import io
 import PyPDF2
 import json
 from google import genai
-from google.genai import types # AÑADIDO: Para poder poner la temperatura a 0.0
+from google.genai import types
 
 # ==========================================
 # INTERFAZ DE USUARIO (EL ESCAPARATE)
@@ -26,29 +26,27 @@ with st.sidebar:
     st.info("El archivo debe contener las columnas 'Company Name' y 'Web' o 'Web site'.")
 
 # ==========================================
-# MOTOR DEL PROGRAMA (AL PULSAR EL BOTÓN)
+# MOTOR DEL PROGRAMA
 # ==========================================
 if st.button("🚀 Iniciar Auditoría Automatizada", type="primary"):
     
     if not api_key_usuario or not archivo_subido:
         st.error("⚠️ Por favor, introduce tu API Key y sube un archivo Excel para comenzar.")
     else:
-        # Configurar la IA con la clave del usuario
         cliente_ia = genai.Client(api_key=api_key_usuario)
-        
-        # Leer el Excel
         df = pd.read_excel(archivo_subido)
         datos_finales = []
         
         palabras_fuertes = ['denuncia', 'whistleblowing', 'etico', 'ética', 'compliance']
         secciones_sospechosas = ['contacto', 'legal', 'sostenibilidad', 'corporativo', 'empresa', 'rsc']
         
-        # Barra de progreso visual
-        barra_progreso = st.progress(0)
+        # AÑADIDO: Inicializar tiempo y barra con texto
+        tiempo_inicio = time.time()
+        barra_progreso = st.progress(0, text="Iniciando auditoría...")
         total_empresas = len(df)
         
         st.subheader("📊 Resultados del Análisis en Tiempo Real")
-        contenedor_resultados = st.container() # Para ir imprimiendo debajo
+        contenedor_resultados = st.container()
         
         for index, row in df.iterrows():
             empresa = row['Company Name'] 
@@ -75,7 +73,6 @@ if st.button("🚀 Iniciar Auditoría Automatizada", type="primary"):
                     canal_encontrado = None
                     enlaces_secundarios = []
                     
-                    # PASO 1: Buscar en portada
                     for enlace in enlaces:
                         href = enlace['href'].lower()
                         texto = enlace.get_text().lower()
@@ -85,7 +82,6 @@ if st.button("🚀 Iniciar Auditoría Automatizada", type="primary"):
                         if any(sec in href for sec in secciones_sospechosas):
                             enlaces_secundarios.append(urllib.parse.urljoin(url_base, enlace['href']))
                     
-                    # PASO 2: Rastreo Profundo
                     if not canal_encontrado and enlaces_secundarios:
                         for url_secundaria in list(set(enlaces_secundarios))[:3]:
                             try:
@@ -104,7 +100,6 @@ if st.button("🚀 Iniciar Auditoría Automatizada", type="primary"):
                             except:
                                 pass 
                             
-                    # PASO 3: EXTRACCIÓN Y ANÁLISIS IA
                     if canal_encontrado:
                         url_canal = canal_encontrado
                         puntuacion_total += 20 
@@ -114,7 +109,6 @@ if st.button("🚀 Iniciar Auditoría Automatizada", type="primary"):
                             resp_canal = requests.get(canal_encontrado, headers=headers, timeout=10)
                             texto_canal = ""
                             
-                            # Análisis de Operatividad
                             soup_canal_interior = BeautifulSoup(resp_canal.text, 'html.parser')
                             if soup_canal_interior.find('form') or 'mailto:' in resp_canal.text:
                                 canal_operativo = "Sí"
@@ -132,8 +126,6 @@ if st.button("🚀 Iniciar Auditoría Automatizada", type="primary"):
                             
                             if texto_canal:
                                 texto_acotado = texto_canal[:15000] 
-                                
-                                # AÑADIDO: Prompt modificado para pedir múltiples citas y coordenadas
                                 prompt = f"""
                                 Eres un auditor estrictamente analítico. Lee el texto y responde ÚNICAMENTE con un objeto JSON válido.
                                 Extrae todas las frases que hablen de anonimato y confidencialidad indicando el apartado del que salen.
@@ -144,11 +136,9 @@ if st.button("🚀 Iniciar Auditoría Automatizada", type="primary"):
                                     "confidencialidad": "SÍ" o "NO",
                                     "citas_confidencialidad": [{{"seccion": "nombre apartado", "cita": "Frase literal exacta"}}]
                                 }}
-                                Texto:
-                                {texto_acotado}
+                                Texto: {texto_acotado}
                                 """
                                 
-                                # AÑADIDO: Sistema de 3 rondas (Consenso) y temperatura 0.0
                                 resultados_rondas = []
                                 for ronda in range(3):
                                     try:
@@ -156,17 +146,16 @@ if st.button("🚀 Iniciar Auditoría Automatizada", type="primary"):
                                             model='gemini-3.6-flash',
                                             contents=prompt,
                                             config=types.GenerateContentConfig(
-                                                temperature=0.0, # Hace que la IA sea 100% calculadora
+                                                temperature=0.0,
                                                 response_mime_type="application/json"
                                             )
                                         )
                                         json_texto = respuesta_ia.text.replace('```json', '').replace('```', '').strip()
                                         resultados_rondas.append(json.loads(json_texto))
-                                        time.sleep(2)
+                                        time.sleep(1)
                                     except Exception:
-                                        time.sleep(3)
+                                        time.sleep(2)
                                 
-                                # AÑADIDO: Lógica de mayorías y recolección de citas múltiples
                                 if resultados_rondas:
                                     votos_anon = sum(1 for r in resultados_rondas if r.get("anonimato", "NO").upper() == "SÍ")
                                     votos_conf = sum(1 for r in resultados_rondas if r.get("confidencialidad", "NO").upper() == "SÍ")
@@ -184,23 +173,21 @@ if st.button("🚀 Iniciar Auditoría Automatizada", type="primary"):
                                             if texto_cita not in todas_citas_conf and len(cita.get('cita', '')) > 5:
                                                 todas_citas_conf.append(texto_cita)
                                                 
-                                    if votos_anon >= 2: # Si al menos 2 de 3 análisis dicen que sí
+                                    if votos_anon >= 2:
                                         puntuacion_total += 30
                                         anonimato_ok = "Sí"
                                         evidencia_anonimato = " | ".join(todas_citas_anon) if todas_citas_anon else "Evidencia detectada"
                                         
-                                    if votos_conf >= 2: # Si al menos 2 de 3 análisis dicen que sí
+                                    if votos_conf >= 2:
                                         puntuacion_total += 30
                                         confidencialidad_ok = "Sí"
                                         evidencia_confidencialidad = " | ".join(todas_citas_conf) if todas_citas_conf else "Evidencia detectada"
                                         
-                                time.sleep(3) 
                         except Exception:
                             pass
                 except Exception:
                     url_canal = "Error de conexión"
         
-            # Imprimir resultado visual por empresa
             with contenedor_resultados:
                 if puntuacion_total >= 80:
                     st.success(f"🟢 **{empresa}** - ICOW: {puntuacion_total}/100")
@@ -209,43 +196,56 @@ if st.button("🚀 Iniciar Auditoría Automatizada", type="primary"):
                 else:
                     st.error(f"🔴 **{empresa}** - ICOW: {puntuacion_total}/100")
             
-            # Guardar fila
             fila_resultado = row.to_dict()
             fila_resultado.update({
                 'Auditoría: URL del Canal': url_canal,
                 'Auditoría: Canal Operativo': canal_operativo,
                 'Auditoría: Anonimato': anonimato_ok,
-                'Auditoría: Cita Anonimato': evidencia_anonimato, # Ahora contiene las coordenadas
+                'Auditoría: Cita Anonimato': evidencia_anonimato,
                 'Auditoría: Confidencialidad': confidencialidad_ok,
-                'Auditoría: Cita Confidencialidad': evidencia_confidencialidad, # Ahora contiene las coordenadas
+                'Auditoría: Cita Confidencialidad': evidencia_confidencialidad,
                 'Auditoría: Puntuación ICOW': puntuacion_total
             })
             datos_finales.append(fila_resultado)
             
-            # Actualizar barra de progreso
+            # AÑADIDO: Cálculo de porcentaje y tiempo estimado restante
             progreso_actual = (index + 1) / total_empresas
-            barra_progreso.progress(progreso_actual)
+            tiempo_transcurrido = time.time() - tiempo_inicio
+            tiempo_por_empresa = tiempo_transcurrido / (index + 1)
+            tiempo_restante_segundos = tiempo_por_empresa * (total_empresas - (index + 1))
             
-        # ==========================================
-        # AÑADIDO: DASHBOARD FINAL CON GRÁFICOS
-        # ==========================================
+            minutos = int(tiempo_restante_segundos // 60)
+            segundos = int(tiempo_restante_segundos % 60)
+            porcentaje = int(progreso_actual * 100)
+            
+            texto_barra = f"Procesando: {porcentaje}% completado | Tiempo estimado restante: {minutos} min {segundos} seg"
+            barra_progreso.progress(progreso_actual, text=texto_barra)
+            
         st.balloons()
         df_resultados = pd.DataFrame(datos_finales)
         
         st.markdown("---")
         st.header("📈 Dashboard de Resultados Globales")
-        col1, col2 = st.columns(2)
         
-        with col1:
-            st.subheader("Tabla Comparativa")
-            st.dataframe(df_resultados[['Company Name', 'Auditoría: Puntuación ICOW', 'Auditoría: Canal Operativo']])
+        # AÑADIDO: Solución del error de nombre de columna y creación de gráficos dinámicos
+        if not df_resultados.empty:
+            df_graficos = df_resultados.copy()
+            # Quitamos los ":" del nombre de la columna para que la librería de gráficos no se rompa
+            df_graficos.rename(columns={'Auditoría: Puntuación ICOW': 'Puntuacion ICOW', 'Auditoría: Canal Operativo': 'Canal Operativo'}, inplace=True)
             
-        with col2:
-            st.subheader("Puntuación ICOW por Empresa")
-            if not df_resultados.empty:
-                st.bar_chart(df_resultados.set_index("Company Name")["Auditoría: Puntuación ICOW"])
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.subheader("Comparativa de Puntuación ICOW")
+                # Gráfico de barras
+                st.bar_chart(df_graficos.set_index("Company Name")["Puntuacion ICOW"])
+                
+            with col2:
+                st.subheader("Estado de Operatividad del Canal")
+                # Contamos cuántos dicen "Sí" y cuántos "No" dinámicamente en base al documento subido
+                operatividad_counts = df_graficos['Canal Operativo'].value_counts()
+                st.bar_chart(operatividad_counts, color="#ffaa00")
 
-        # Convertir Excel a memoria para botón de descarga
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             df_resultados.to_excel(writer, index=False)
