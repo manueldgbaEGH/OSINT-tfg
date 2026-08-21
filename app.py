@@ -8,6 +8,7 @@ import io
 import PyPDF2
 import json
 from google import genai
+from google.genai import types # AÑADIDO: Para poder poner la temperatura a 0.0
 
 # ==========================================
 # INTERFAZ DE USUARIO (EL ESCAPARATE)
@@ -131,43 +132,68 @@ if st.button("🚀 Iniciar Auditoría Automatizada", type="primary"):
                             
                             if texto_canal:
                                 texto_acotado = texto_canal[:15000] 
+                                
+                                # AÑADIDO: Prompt modificado para pedir múltiples citas y coordenadas
                                 prompt = f"""
-                                Eres un auditor de compliance legal. Lee el texto y responde ÚNICAMENTE con un objeto JSON válido.
-                                No uses viñetas ni texto fuera del JSON. Las claves deben ser exactamente estas:
+                                Eres un auditor estrictamente analítico. Lee el texto y responde ÚNICAMENTE con un objeto JSON válido.
+                                Extrae todas las frases que hablen de anonimato y confidencialidad indicando el apartado del que salen.
+                                Formato obligatorio:
                                 {{
                                     "anonimato": "SÍ" o "NO",
-                                    "evidencia_anonimato": "Frase literal extraída del texto",
+                                    "citas_anonimato": [{{"seccion": "nombre apartado", "cita": "Frase literal exacta"}}],
                                     "confidencialidad": "SÍ" o "NO",
-                                    "evidencia_confidencialidad": "Frase literal extraída del texto"
+                                    "citas_confidencialidad": [{{"seccion": "nombre apartado", "cita": "Frase literal exacta"}}]
                                 }}
-                                
                                 Texto:
                                 {texto_acotado}
                                 """
-                                exito_ia = False
-                                for intento in range(3):
+                                
+                                # AÑADIDO: Sistema de 3 rondas (Consenso) y temperatura 0.0
+                                resultados_rondas = []
+                                for ronda in range(3):
                                     try:
                                         respuesta_ia = cliente_ia.models.generate_content(
                                             model='gemini-3.6-flash',
-                                            contents=prompt
+                                            contents=prompt,
+                                            config=types.GenerateContentConfig(
+                                                temperature=0.0, # Hace que la IA sea 100% calculadora
+                                                response_mime_type="application/json"
+                                            )
                                         )
                                         json_texto = respuesta_ia.text.replace('```json', '').replace('```', '').strip()
-                                        datos_ia = json.loads(json_texto)
-                                        exito_ia = True
-                                        break 
+                                        resultados_rondas.append(json.loads(json_texto))
+                                        time.sleep(2)
                                     except Exception:
-                                        time.sleep(5)
+                                        time.sleep(3)
                                 
-                                if exito_ia:
-                                    if datos_ia.get("anonimato", "NO").upper() == "SÍ":
+                                # AÑADIDO: Lógica de mayorías y recolección de citas múltiples
+                                if resultados_rondas:
+                                    votos_anon = sum(1 for r in resultados_rondas if r.get("anonimato", "NO").upper() == "SÍ")
+                                    votos_conf = sum(1 for r in resultados_rondas if r.get("confidencialidad", "NO").upper() == "SÍ")
+                                    
+                                    todas_citas_anon = []
+                                    todas_citas_conf = []
+                                    
+                                    for r in resultados_rondas:
+                                        for cita in r.get("citas_anonimato", []):
+                                            texto_cita = f"[{cita.get('seccion', 'N/A')}] {cita.get('cita', '')}"
+                                            if texto_cita not in todas_citas_anon and len(cita.get('cita', '')) > 5:
+                                                todas_citas_anon.append(texto_cita)
+                                        for cita in r.get("citas_confidencialidad", []):
+                                            texto_cita = f"[{cita.get('seccion', 'N/A')}] {cita.get('cita', '')}"
+                                            if texto_cita not in todas_citas_conf and len(cita.get('cita', '')) > 5:
+                                                todas_citas_conf.append(texto_cita)
+                                                
+                                    if votos_anon >= 2: # Si al menos 2 de 3 análisis dicen que sí
                                         puntuacion_total += 30
                                         anonimato_ok = "Sí"
-                                        evidencia_anonimato = datos_ia.get("evidencia_anonimato", "")
+                                        evidencia_anonimato = " | ".join(todas_citas_anon) if todas_citas_anon else "Evidencia detectada"
                                         
-                                    if datos_ia.get("confidencialidad", "NO").upper() == "SÍ":
+                                    if votos_conf >= 2: # Si al menos 2 de 3 análisis dicen que sí
                                         puntuacion_total += 30
                                         confidencialidad_ok = "Sí"
-                                        evidencia_confidencialidad = datos_ia.get("evidencia_confidencialidad", "")
+                                        evidencia_confidencialidad = " | ".join(todas_citas_conf) if todas_citas_conf else "Evidencia detectada"
+                                        
                                 time.sleep(3) 
                         except Exception:
                             pass
@@ -189,9 +215,9 @@ if st.button("🚀 Iniciar Auditoría Automatizada", type="primary"):
                 'Auditoría: URL del Canal': url_canal,
                 'Auditoría: Canal Operativo': canal_operativo,
                 'Auditoría: Anonimato': anonimato_ok,
-                'Auditoría: Cita Anonimato': evidencia_anonimato,
+                'Auditoría: Cita Anonimato': evidencia_anonimato, # Ahora contiene las coordenadas
                 'Auditoría: Confidencialidad': confidencialidad_ok,
-                'Auditoría: Cita Confidencialidad': evidencia_confidencialidad,
+                'Auditoría: Cita Confidencialidad': evidencia_confidencialidad, # Ahora contiene las coordenadas
                 'Auditoría: Puntuación ICOW': puntuacion_total
             })
             datos_finales.append(fila_resultado)
@@ -200,10 +226,25 @@ if st.button("🚀 Iniciar Auditoría Automatizada", type="primary"):
             progreso_actual = (index + 1) / total_empresas
             barra_progreso.progress(progreso_actual)
             
-        # Al terminar, crear Excel descargable
+        # ==========================================
+        # AÑADIDO: DASHBOARD FINAL CON GRÁFICOS
+        # ==========================================
         st.balloons()
         df_resultados = pd.DataFrame(datos_finales)
         
+        st.markdown("---")
+        st.header("📈 Dashboard de Resultados Globales")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.subheader("Tabla Comparativa")
+            st.dataframe(df_resultados[['Company Name', 'Auditoría: Puntuación ICOW', 'Auditoría: Canal Operativo']])
+            
+        with col2:
+            st.subheader("Puntuación ICOW por Empresa")
+            if not df_resultados.empty:
+                st.bar_chart(df_resultados.set_index("Company Name")["Auditoría: Puntuación ICOW"])
+
         # Convertir Excel a memoria para botón de descarga
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
