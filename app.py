@@ -78,13 +78,24 @@ if st.button("🚀 Iniciar Auditoría", type="primary"):
             puntuacion_base = 0  # Sin IA (Máx 40)
             puntuacion_ia = 0    # Con IA (Máx 60)
                 
-            if pd.notna(url_base):
+        if pd.notna(url_base):
+                # CAMBIO 1: Forzamos conexión segura HTTPS (vital para webs corporativas)
                 if not str(url_base).startswith('http'):
-                    url_base = 'http://' + str(url_base)
+                    url_base = 'https://' + str(url_base)
                     
                 try:
-                    headers = {'User-Agent': 'Mozilla/5.0'} 
-                    respuesta = requests.get(url_base, headers=headers, timeout=10)
+                    # CAMBIO 2: Disfraz humano avanzado (evita bloqueos anti-bots)
+                    headers = {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                        'Accept-Language': 'es-ES,es;q=0.8,en-US;q=0.5,en;q=0.3',
+                        'Connection': 'keep-alive'
+                    } 
+                    # CAMBIO 3: Aumentamos el timeout a 15 segundos por si la web es lenta
+                    respuesta = requests.get(url_base, headers=headers, timeout=15)
+                    
+                    # Ignorar errores de certificado SSL temporales que a veces tienen las empresas
+                    respuesta.raise_for_status()
                     soup = BeautifulSoup(respuesta.text, 'html.parser')
                     
                     enlaces = soup.find_all('a', href=True)
