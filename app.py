@@ -16,7 +16,6 @@ from datetime import datetime
 # ==========================================
 st.set_page_config(page_title="Auditor TFG - Ley 2/2023", page_icon="🕵️‍♂️", layout="wide")
 
-# Inicializar la "Memoria" del programa para guardar el histórico
 if 'historial_datos' not in st.session_state:
     st.session_state.historial_datos = pd.DataFrame()
 
@@ -33,16 +32,13 @@ with st.sidebar:
     
     st.markdown("---")
     st.header("🎛️ Parámetros Metodológicos")
-    # AÑADIDO: Selector de repeticiones de la IA
-    rondas_ia = st.slider("Rondas de Consenso IA (Precisión vs Agilidad):", min_value=1, max_value=5, value=3, help="1 = Más rápido / 3+ = Máxima precisión científica")
-    
+    rondas_ia = st.slider("Rondas de Consenso IA (Precisión vs Agilidad):", min_value=1, max_value=5, value=3)
     st.info("El archivo debe contener las columnas 'Company Name' y 'Web' o 'Web site'.")
 
 # ==========================================
 # MOTOR DEL PROGRAMA
 # ==========================================
 if st.button("🚀 Iniciar Auditoría", type="primary"):
-    
     if not api_key_usuario or not archivo_subido:
         st.error("⚠️ Por favor, introduce tu API Key y sube un archivo Excel para comenzar.")
     else:
@@ -56,8 +52,6 @@ if st.button("🚀 Iniciar Auditoría", type="primary"):
         tiempo_inicio = time.time()
         barra_progreso = st.progress(0, text="Iniciando auditoría...")
         total_empresas = len(df)
-        
-        # Etiqueta de la ejecución para el histórico
         timestamp_ejecucion = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
         st.subheader("⏳ Procesamiento en Tiempo Real")
@@ -74,28 +68,21 @@ if st.button("🚀 Iniciar Auditoría", type="primary"):
             evidencia_anonimato = "N/A"
             evidencia_confidencialidad = "N/A"
             
-            # AÑADIDO: Separación de puntuaciones
-            puntuacion_base = 0  # Sin IA (Máx 40)
-            puntuacion_ia = 0    # Con IA (Máx 60)
+            puntuacion_base = 0  
+            puntuacion_ia = 0    
                 
-        if pd.notna(url_base):
-                # CAMBIO 1: Forzamos conexión segura HTTPS (vital para webs corporativas)
+            if pd.notna(url_base):
                 if not str(url_base).startswith('http'):
                     url_base = 'https://' + str(url_base)
                     
                 try:
-                    # CAMBIO 2: Disfraz humano avanzado (evita bloqueos anti-bots)
                     headers = {
                         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
                         'Accept-Language': 'es-ES,es;q=0.8,en-US;q=0.5,en;q=0.3',
                         'Connection': 'keep-alive'
                     } 
-                    # CAMBIO 3: Aumentamos el timeout a 15 segundos por si la web es lenta
                     respuesta = requests.get(url_base, headers=headers, timeout=15)
-                    
-                    # Ignorar errores de certificado SSL temporales que a veces tienen las empresas
-                    respuesta.raise_for_status()
                     soup = BeautifulSoup(respuesta.text, 'html.parser')
                     
                     enlaces = soup.find_all('a', href=True)
@@ -115,7 +102,7 @@ if st.button("🚀 Iniciar Auditoría", type="primary"):
                         for url_secundaria in list(set(enlaces_secundarios))[:3]:
                             try:
                                 time.sleep(1) 
-                                resp_sec = requests.get(url_secundaria, headers=headers, timeout=5)
+                                resp_sec = requests.get(url_secundaria, headers=headers, timeout=10)
                                 soup_sec = BeautifulSoup(resp_sec.text, 'html.parser')
                                 enlaces_sec = soup_sec.find_all('a', href=True)
                                 for e in enlaces_sec:
@@ -131,17 +118,17 @@ if st.button("🚀 Iniciar Auditoría", type="primary"):
                             
                     if canal_encontrado:
                         url_canal = canal_encontrado
-                        puntuacion_base += 20 # Determinista (Sin IA)
+                        puntuacion_base += 20 
                         
                         try:
                             time.sleep(1)
-                            resp_canal = requests.get(canal_encontrado, headers=headers, timeout=10)
+                            resp_canal = requests.get(canal_encontrado, headers=headers, timeout=15)
                             texto_canal = ""
                             
                             soup_canal_interior = BeautifulSoup(resp_canal.text, 'html.parser')
                             if soup_canal_interior.find('form') or 'mailto:' in resp_canal.text:
                                 canal_operativo = "Sí"
-                                puntuacion_base += 20 # Determinista (Sin IA)
+                                puntuacion_base += 20 
         
                             if canal_encontrado.lower().endswith('.pdf') or 'application/pdf' in resp_canal.headers.get('Content-Type', ''):
                                 pdf_archivo = io.BytesIO(resp_canal.content)
@@ -169,7 +156,6 @@ if st.button("🚀 Iniciar Auditoría", type="primary"):
                                 """
                                 
                                 resultados_rondas = []
-                                # AÑADIDO: El bucle ahora depende del slider (rondas_ia)
                                 for ronda in range(rondas_ia):
                                     try:
                                         respuesta_ia = cliente_ia.models.generate_content(
@@ -203,7 +189,6 @@ if st.button("🚀 Iniciar Auditoría", type="primary"):
                                             if texto_cita not in todas_citas_conf and len(cita.get('cita', '')) > 5:
                                                 todas_citas_conf.append(texto_cita)
                                     
-                                    # Lógica de mayoría adaptable según las rondas elegidas
                                     mayoria = (rondas_ia // 2) + 1
                                             
                                     if votos_anon >= mayoria:
@@ -220,7 +205,7 @@ if st.button("🚀 Iniciar Auditoría", type="primary"):
                             pass
                 except Exception:
                     url_canal = "Error de conexión"
-        
+            
             puntuacion_total = puntuacion_base + puntuacion_ia
             
             with contenedor_resultados:
@@ -255,22 +240,18 @@ if st.button("🚀 Iniciar Auditoría", type="primary"):
             
         st.balloons()
         df_resultados = pd.DataFrame(datos_finales)
-        
-        # Guardar en la memoria global
         st.session_state.historial_datos = pd.concat([st.session_state.historial_datos, df_resultados], ignore_index=True)
         
         # ==========================================
-        # DASHBOARD Y RESULTADOS
+        # DASHBOARD FINAL (TABLAS Y RAZONAMIENTOS)
         # ==========================================
         st.markdown("---")
-        
         tab1, tab2 = st.tabs(["📊 Análisis Actual", "📚 Memoria Histórica"])
         
         with tab1:
             st.header(f"Resultados de la muestra actual ({rondas_ia} Rondas IA)")
             if not df_resultados.empty:
                 df_graficos = df_resultados.copy()
-                # CORREZIONE: Rinominiamo TUTTE le colonne usate nei grafici per togliere i due punti (:)
                 df_graficos.rename(columns={
                     'Auditoría: Puntuación ICOW TOTAL': 'ICOW Total', 
                     'Auditoría: ICOW Base (SIN IA)': 'ICOW Base',
@@ -279,17 +260,17 @@ if st.button("🚀 Iniciar Auditoría", type="primary"):
                 
                 col1, col2 = st.columns(2)
                 with col1:
-                    st.subheader("Comparativa: ICOW Base (Sin IA) vs ICOW Total")
-                    # Muestra las dos barras comparadas para evidenciar el aporte de la IA
+                    st.subheader("Comparativa: ICOW Base vs Total")
                     st.bar_chart(df_graficos.set_index("Company Name")[['ICOW Base', 'ICOW Total']])
                 with col2:
-                    st.subheader("Estado de Operatividad (Determinista)")
-                    # Ora usa la colonna rinominata senza i due punti
+                    st.subheader("Estado de Operatividad")
                     st.bar_chart(df_graficos['Canal Operativo'].value_counts(), color="#ffaa00")
 
             st.subheader("📋 Matriz de Datos")
             st.dataframe(df_resultados, use_container_width=True)
 
+            st.markdown("---")
+            st.subheader("🔍 Análisis Detallado y Justificación Jurídica")
             for index, row in df_resultados.iterrows():
                 with st.expander(f"🏢 {row['Company Name']} - Base: {row['Auditoría: ICOW Base (SIN IA)']} | Total: {row['Auditoría: Puntuación ICOW TOTAL']}"):
                     st.write(f"**URL:** {row['Auditoría: URL del Canal']} | **Operativo:** {row['Auditoría: Canal Operativo']}")
@@ -305,7 +286,7 @@ if st.button("🚀 Iniciar Auditoría", type="primary"):
 
         with tab2:
             st.header("Histórico de todas las pruebas")
-            st.write("Aquí se acumulan todas las pruebas que hagas mientras no cierres esta pestaña web. Ideal para comparar el mismo Excel con 1 ronda de IA frente a 5 rondas.")
+            st.write("Aquí se acumulan todas las pruebas que hagas mientras no cierres esta pestaña web.")
             st.dataframe(st.session_state.historial_datos, use_container_width=True)
             
             if not st.session_state.historial_datos.empty:
