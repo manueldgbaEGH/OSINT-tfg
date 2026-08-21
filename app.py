@@ -11,17 +11,16 @@ from google import genai
 from google.genai import types
 
 # ==========================================
-# INTERFAZ DE USUARIO (EL ESCAPARATE)
+# INTERFAZ DE USUARIO
 # ==========================================
 st.set_page_config(page_title="Auditor TFG - Ley 2/2023", page_icon="🕵️‍♂️", layout="wide")
 
 st.title("🕵️‍♂️ Auditor OSINT: Canales de Denuncia (Ley 2/2023)")
 st.markdown("Esta herramienta analiza páginas web corporativas para evaluar el **Índice de Cumplimiento Observable en Web (ICOW)** de los Sistemas Internos de Información mediante IA.")
 
-# Barra lateral para configuraciones
 with st.sidebar:
     st.header("⚙️ Configuración")
-    api_key_usuario = st.text_input("1. Introduce tu API Key de Gemini:", type="password", help="Tu clave segura de Google AI Studio")
+    api_key_usuario = st.text_input("1. Introduce tu API Key de Gemini:", type="password")
     archivo_subido = st.file_uploader("2. Sube tu base de datos (Excel SABI)", type=["xlsx"])
     st.info("El archivo debe contener las columnas 'Company Name' y 'Web' o 'Web site'.")
 
@@ -40,12 +39,11 @@ if st.button("🚀 Iniciar Auditoría Automatizada", type="primary"):
         palabras_fuertes = ['denuncia', 'whistleblowing', 'etico', 'ética', 'compliance']
         secciones_sospechosas = ['contacto', 'legal', 'sostenibilidad', 'corporativo', 'empresa', 'rsc']
         
-        # AÑADIDO: Inicializar tiempo y barra con texto
         tiempo_inicio = time.time()
         barra_progreso = st.progress(0, text="Iniciando auditoría...")
         total_empresas = len(df)
         
-        st.subheader("📊 Resultados del Análisis en Tiempo Real")
+        st.subheader("⏳ Procesamiento en Tiempo Real")
         contenedor_resultados = st.container()
         
         for index, row in df.iterrows():
@@ -208,7 +206,6 @@ if st.button("🚀 Iniciar Auditoría Automatizada", type="primary"):
             })
             datos_finales.append(fila_resultado)
             
-            # AÑADIDO: Cálculo de porcentaje y tiempo estimado restante
             progreso_actual = (index + 1) / total_empresas
             tiempo_transcurrido = time.time() - tiempo_inicio
             tiempo_por_empresa = tiempo_transcurrido / (index + 1)
@@ -221,40 +218,59 @@ if st.button("🚀 Iniciar Auditoría Automatizada", type="primary"):
             texto_barra = f"Procesando: {porcentaje}% completado | Tiempo estimado restante: {minutos} min {segundos} seg"
             barra_progreso.progress(progreso_actual, text=texto_barra)
             
+        # ==========================================
+        # DASHBOARD FINAL (TABLAS Y RAZONAMIENTOS)
+        # ==========================================
         st.balloons()
         df_resultados = pd.DataFrame(datos_finales)
         
         st.markdown("---")
         st.header("📈 Dashboard de Resultados Globales")
         
-        # AÑADIDO: Solución del error de nombre de columna y creación de gráficos dinámicos
+        # 1. Gráficos
         if not df_resultados.empty:
             df_graficos = df_resultados.copy()
-            # Quitamos los ":" del nombre de la columna para que la librería de gráficos no se rompa
             df_graficos.rename(columns={'Auditoría: Puntuación ICOW': 'Puntuacion ICOW', 'Auditoría: Canal Operativo': 'Canal Operativo'}, inplace=True)
             
             col1, col2 = st.columns(2)
-            
             with col1:
                 st.subheader("Comparativa de Puntuación ICOW")
-                # Gráfico de barras
                 st.bar_chart(df_graficos.set_index("Company Name")["Puntuacion ICOW"])
-                
             with col2:
                 st.subheader("Estado de Operatividad del Canal")
-                # Contamos cuántos dicen "Sí" y cuántos "No" dinámicamente en base al documento subido
                 operatividad_counts = df_graficos['Canal Operativo'].value_counts()
                 st.bar_chart(operatividad_counts, color="#ffaa00")
 
+        # 2. Tabla completa
+        st.markdown("---")
+        st.subheader("📋 Matriz de Datos Completa")
+        st.dataframe(df_resultados, use_container_width=True)
+
+        # 3. Fichas de razonamiento interactivo por empresa
+        st.markdown("---")
+        st.subheader("🔍 Análisis Detallado y Justificación Jurídica")
+        st.write("Haz clic en cualquier empresa para revisar las evidencias extraídas por la Inteligencia Artificial:")
+        
+        for index, row in df_resultados.iterrows():
+            with st.expander(f"🏢 {row['Company Name']} - Puntuación ICOW: {row['Auditoría: Puntuación ICOW']}/100"):
+                st.markdown(f"**URL Detectada:** {row['Auditoría: URL del Canal']}")
+                st.markdown(f"**Mecanismo de Envío (Formulario/Email):** {row['Auditoría: Canal Operativo']}")
+                st.markdown("---")
+                st.markdown(f"**🕵️‍♂️ Evaluación de Anonimato:** {row['Auditoría: Anonimato']}")
+                st.info(f"**Evidencia literal:** {row['Auditoría: Cita Anonimato']}")
+                st.markdown(f"**🔐 Evaluación de Confidencialidad:** {row['Auditoría: Confidencialidad']}")
+                st.success(f"**Evidencia literal:** {row['Auditoría: Cita Confidencialidad']}")
+
+        # 4. Descarga
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             df_resultados.to_excel(writer, index=False)
         datos_excel = output.getvalue()
         
         st.markdown("---")
-        st.subheader("💾 Auditoría Finalizada")
+        st.subheader("💾 Exportación de Resultados")
         st.download_button(
-            label="📥 Descargar Base de Datos con Resultados",
+            label="📥 Descargar Base de Datos Científica (.xlsx)",
             data=datos_excel,
             file_name="Resultados_Auditoria_TFG.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
