@@ -9,25 +9,39 @@ import PyPDF2
 import json
 from google import genai
 from google.genai import types
+from datetime import datetime
 
 # ==========================================
-# INTERFAZ DE USUARIO
+# CONFIGURACIÓN Y MEMORIA HISTÓRICA
 # ==========================================
 st.set_page_config(page_title="Auditor TFG - Ley 2/2023", page_icon="🕵️‍♂️", layout="wide")
 
-st.title("🕵️‍♂️ Auditor OSINT: Canales de Denuncia (Ley 2/2023)")
-st.markdown("Esta herramienta analiza páginas web corporativas para evaluar el **Índice de Cumplimiento Observable en Web (ICOW)** de los Sistemas Internos de Información mediante IA.")
+# Inicializar la "Memoria" del programa para guardar el histórico
+if 'historial_datos' not in st.session_state:
+    st.session_state.historial_datos = pd.DataFrame()
 
+st.title("🕵️‍♂️ Auditor OSINT: Canales de Denuncia (Ley 2/2023)")
+st.markdown("Herramienta de análisis metodológico con memoria histórica y control de IA para el Trabajo de Fin de Grado.")
+
+# ==========================================
+# BARRA LATERAL
+# ==========================================
 with st.sidebar:
     st.header("⚙️ Configuración")
     api_key_usuario = st.text_input("1. Introduce tu API Key de Gemini:", type="password")
     archivo_subido = st.file_uploader("2. Sube tu base de datos (Excel SABI)", type=["xlsx"])
+    
+    st.markdown("---")
+    st.header("🎛️ Parámetros Metodológicos")
+    # AÑADIDO: Selector de repeticiones de la IA
+    rondas_ia = st.slider("Rondas de Consenso IA (Precisión vs Agilidad):", min_value=1, max_value=5, value=3, help="1 = Más rápido / 3+ = Máxima precisión científica")
+    
     st.info("El archivo debe contener las columnas 'Company Name' y 'Web' o 'Web site'.")
 
 # ==========================================
 # MOTOR DEL PROGRAMA
 # ==========================================
-if st.button("🚀 Iniciar Auditoría Automatizada", type="primary"):
+if st.button("🚀 Iniciar Auditoría", type="primary"):
     
     if not api_key_usuario or not archivo_subido:
         st.error("⚠️ Por favor, introduce tu API Key y sube un archivo Excel para comenzar.")
@@ -43,6 +57,9 @@ if st.button("🚀 Iniciar Auditoría Automatizada", type="primary"):
         barra_progreso = st.progress(0, text="Iniciando auditoría...")
         total_empresas = len(df)
         
+        # Etiqueta de la ejecución para el histórico
+        timestamp_ejecucion = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
         st.subheader("⏳ Procesamiento en Tiempo Real")
         contenedor_resultados = st.container()
         
@@ -56,7 +73,10 @@ if st.button("🚀 Iniciar Auditoría Automatizada", type="primary"):
             confidencialidad_ok = "No"
             evidencia_anonimato = "N/A"
             evidencia_confidencialidad = "N/A"
-            puntuacion_total = 0
+            
+            # AÑADIDO: Separación de puntuaciones
+            puntuacion_base = 0  # Sin IA (Máx 40)
+            puntuacion_ia = 0    # Con IA (Máx 60)
                 
             if pd.notna(url_base):
                 if not str(url_base).startswith('http'):
@@ -100,7 +120,7 @@ if st.button("🚀 Iniciar Auditoría Automatizada", type="primary"):
                             
                     if canal_encontrado:
                         url_canal = canal_encontrado
-                        puntuacion_total += 20 
+                        puntuacion_base += 20 # Determinista (Sin IA)
                         
                         try:
                             time.sleep(1)
@@ -110,7 +130,7 @@ if st.button("🚀 Iniciar Auditoría Automatizada", type="primary"):
                             soup_canal_interior = BeautifulSoup(resp_canal.text, 'html.parser')
                             if soup_canal_interior.find('form') or 'mailto:' in resp_canal.text:
                                 canal_operativo = "Sí"
-                                puntuacion_total += 20 
+                                puntuacion_base += 20 # Determinista (Sin IA)
         
                             if canal_encontrado.lower().endswith('.pdf') or 'application/pdf' in resp_canal.headers.get('Content-Type', ''):
                                 pdf_archivo = io.BytesIO(resp_canal.content)
@@ -138,7 +158,8 @@ if st.button("🚀 Iniciar Auditoría Automatizada", type="primary"):
                                 """
                                 
                                 resultados_rondas = []
-                                for ronda in range(3):
+                                # AÑADIDO: El bucle ahora depende del slider (rondas_ia)
+                                for ronda in range(rondas_ia):
                                     try:
                                         respuesta_ia = cliente_ia.models.generate_content(
                                             model='gemini-3.6-flash',
@@ -170,14 +191,17 @@ if st.button("🚀 Iniciar Auditoría Automatizada", type="primary"):
                                             texto_cita = f"[{cita.get('seccion', 'N/A')}] {cita.get('cita', '')}"
                                             if texto_cita not in todas_citas_conf and len(cita.get('cita', '')) > 5:
                                                 todas_citas_conf.append(texto_cita)
-                                                
-                                    if votos_anon >= 2:
-                                        puntuacion_total += 30
+                                    
+                                    # Lógica de mayoría adaptable según las rondas elegidas
+                                    mayoria = (rondas_ia // 2) + 1
+                                            
+                                    if votos_anon >= mayoria:
+                                        puntuacion_ia += 30
                                         anonimato_ok = "Sí"
                                         evidencia_anonimato = " | ".join(todas_citas_anon) if todas_citas_anon else "Evidencia detectada"
                                         
-                                    if votos_conf >= 2:
-                                        puntuacion_total += 30
+                                    if votos_conf >= mayoria:
+                                        puntuacion_ia += 30
                                         confidencialidad_ok = "Sí"
                                         evidencia_confidencialidad = " | ".join(todas_citas_conf) if todas_citas_conf else "Evidencia detectada"
                                         
@@ -186,23 +210,23 @@ if st.button("🚀 Iniciar Auditoría Automatizada", type="primary"):
                 except Exception:
                     url_canal = "Error de conexión"
         
+            puntuacion_total = puntuacion_base + puntuacion_ia
+            
             with contenedor_resultados:
-                if puntuacion_total >= 80:
-                    st.success(f"🟢 **{empresa}** - ICOW: {puntuacion_total}/100")
-                elif puntuacion_total >= 40:
-                    st.warning(f"🟡 **{empresa}** - ICOW: {puntuacion_total}/100")
-                else:
-                    st.error(f"🔴 **{empresa}** - ICOW: {puntuacion_total}/100")
+                st.write(f"🏢 **{empresa}** -> **ICOW Base (Sin IA):** {puntuacion_base}/40 | **ICOW Total:** {puntuacion_total}/100")
             
             fila_resultado = row.to_dict()
             fila_resultado.update({
+                'ID_Ejecución': timestamp_ejecucion,
+                'Rondas_IA': rondas_ia,
                 'Auditoría: URL del Canal': url_canal,
                 'Auditoría: Canal Operativo': canal_operativo,
+                'Auditoría: ICOW Base (SIN IA)': puntuacion_base,
                 'Auditoría: Anonimato': anonimato_ok,
                 'Auditoría: Cita Anonimato': evidencia_anonimato,
                 'Auditoría: Confidencialidad': confidencialidad_ok,
                 'Auditoría: Cita Confidencialidad': evidencia_confidencialidad,
-                'Auditoría: Puntuación ICOW': puntuacion_total
+                'Auditoría: Puntuación ICOW TOTAL': puntuacion_total
             })
             datos_finales.append(fila_resultado)
             
@@ -218,60 +242,57 @@ if st.button("🚀 Iniciar Auditoría Automatizada", type="primary"):
             texto_barra = f"Procesando: {porcentaje}% completado | Tiempo estimado restante: {minutos} min {segundos} seg"
             barra_progreso.progress(progreso_actual, text=texto_barra)
             
-        # ==========================================
-        # DASHBOARD FINAL (TABLAS Y RAZONAMIENTOS)
-        # ==========================================
         st.balloons()
         df_resultados = pd.DataFrame(datos_finales)
         
-        st.markdown("---")
-        st.header("📈 Dashboard de Resultados Globales")
+        # Guardar en la memoria global
+        st.session_state.historial_datos = pd.concat([st.session_state.historial_datos, df_resultados], ignore_index=True)
         
-        # 1. Gráficos
-        if not df_resultados.empty:
-            df_graficos = df_resultados.copy()
-            df_graficos.rename(columns={'Auditoría: Puntuación ICOW': 'Puntuacion ICOW', 'Auditoría: Canal Operativo': 'Canal Operativo'}, inplace=True)
+        # ==========================================
+        # DASHBOARD Y RESULTADOS
+        # ==========================================
+        st.markdown("---")
+        
+        tab1, tab2 = st.tabs(["📊 Análisis Actual", "📚 Memoria Histórica"])
+        
+        with tab1:
+            st.header(f"Resultados de la muestra actual ({rondas_ia} Rondas IA)")
+            if not df_resultados.empty:
+                df_graficos = df_resultados.copy()
+                df_graficos.rename(columns={'Auditoría: Puntuación ICOW TOTAL': 'ICOW Total', 'Auditoría: ICOW Base (SIN IA)': 'ICOW Base'}, inplace=True)
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.subheader("Comparativa: ICOW Base (Sin IA) vs ICOW Total")
+                    # Muestra las dos barras comparadas para evidenciar el aporte de la IA
+                    st.bar_chart(df_graficos.set_index("Company Name")[['ICOW Base', 'ICOW Total']])
+                with col2:
+                    st.subheader("Estado de Operatividad (Determinista)")
+                    st.bar_chart(df_graficos['Auditoría: Canal Operativo'].value_counts(), color="#ffaa00")
+
+            st.subheader("📋 Matriz de Datos")
+            st.dataframe(df_resultados, use_container_width=True)
+
+            for index, row in df_resultados.iterrows():
+                with st.expander(f"🏢 {row['Company Name']} - Base: {row['Auditoría: ICOW Base (SIN IA)']} | Total: {row['Auditoría: Puntuación ICOW TOTAL']}"):
+                    st.write(f"**URL:** {row['Auditoría: URL del Canal']} | **Operativo:** {row['Auditoría: Canal Operativo']}")
+                    st.write(f"**Anonimato:** {row['Auditoría: Anonimato']}")
+                    st.info(f"{row['Auditoría: Cita Anonimato']}")
+                    st.write(f"**Confidencialidad:** {row['Auditoría: Confidencialidad']}")
+                    st.success(f"{row['Auditoría: Cita Confidencialidad']}")
+
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                df_resultados.to_excel(writer, index=False)
+            st.download_button("📥 Descargar Excel (Muestra Actual)", data=output.getvalue(), file_name="Auditoria_Actual.xlsx")
+
+        with tab2:
+            st.header("Histórico de todas las pruebas")
+            st.write("Aquí se acumulan todas las pruebas que hagas mientras no cierres esta pestaña web. Ideal para comparar el mismo Excel con 1 ronda de IA frente a 5 rondas.")
+            st.dataframe(st.session_state.historial_datos, use_container_width=True)
             
-            col1, col2 = st.columns(2)
-            with col1:
-                st.subheader("Comparativa de Puntuación ICOW")
-                st.bar_chart(df_graficos.set_index("Company Name")["Puntuacion ICOW"])
-            with col2:
-                st.subheader("Estado de Operatividad del Canal")
-                operatividad_counts = df_graficos['Canal Operativo'].value_counts()
-                st.bar_chart(operatividad_counts, color="#ffaa00")
-
-        # 2. Tabla completa
-        st.markdown("---")
-        st.subheader("📋 Matriz de Datos Completa")
-        st.dataframe(df_resultados, use_container_width=True)
-
-        # 3. Fichas de razonamiento interactivo por empresa
-        st.markdown("---")
-        st.subheader("🔍 Análisis Detallado y Justificación Jurídica")
-        st.write("Haz clic en cualquier empresa para revisar las evidencias extraídas por la Inteligencia Artificial:")
-        
-        for index, row in df_resultados.iterrows():
-            with st.expander(f"🏢 {row['Company Name']} - Puntuación ICOW: {row['Auditoría: Puntuación ICOW']}/100"):
-                st.markdown(f"**URL Detectada:** {row['Auditoría: URL del Canal']}")
-                st.markdown(f"**Mecanismo de Envío (Formulario/Email):** {row['Auditoría: Canal Operativo']}")
-                st.markdown("---")
-                st.markdown(f"**🕵️‍♂️ Evaluación de Anonimato:** {row['Auditoría: Anonimato']}")
-                st.info(f"**Evidencia literal:** {row['Auditoría: Cita Anonimato']}")
-                st.markdown(f"**🔐 Evaluación de Confidencialidad:** {row['Auditoría: Confidencialidad']}")
-                st.success(f"**Evidencia literal:** {row['Auditoría: Cita Confidencialidad']}")
-
-        # 4. Descarga
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            df_resultados.to_excel(writer, index=False)
-        datos_excel = output.getvalue()
-        
-        st.markdown("---")
-        st.subheader("💾 Exportación de Resultados")
-        st.download_button(
-            label="📥 Descargar Base de Datos Científica (.xlsx)",
-            data=datos_excel,
-            file_name="Resultados_Auditoria_TFG.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+            if not st.session_state.historial_datos.empty:
+                output_hist = io.BytesIO()
+                with pd.ExcelWriter(output_hist, engine='xlsxwriter') as writer:
+                    st.session_state.historial_datos.to_excel(writer, index=False)
+                st.download_button("📥 Descargar TODO el Histórico Consolidado", data=output_hist.getvalue(), file_name="Historico_Global_TFG.xlsx", type="primary")
