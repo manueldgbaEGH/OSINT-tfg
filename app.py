@@ -259,7 +259,12 @@ if st.button("🚀 Iniciar Auditoría", type="primary"):
             st.header(f"Resultados de la muestra actual ({rondas_ia} Rondas IA)")
             if not df_resultados.empty:
                 df_graficos = df_resultados.copy()
-                df_graficos.rename(columns={'Auditoría: Puntuación ICOW TOTAL': 'ICOW Total', 'Auditoría: ICOW Base (SIN IA)': 'ICOW Base'}, inplace=True)
+                # CORREZIONE: Rinominiamo TUTTE le colonne usate nei grafici per togliere i due punti (:)
+                df_graficos.rename(columns={
+                    'Auditoría: Puntuación ICOW TOTAL': 'ICOW Total', 
+                    'Auditoría: ICOW Base (SIN IA)': 'ICOW Base',
+                    'Auditoría: Canal Operativo': 'Canal Operativo'
+                }, inplace=True)
                 
                 col1, col2 = st.columns(2)
                 with col1:
@@ -268,7 +273,8 @@ if st.button("🚀 Iniciar Auditoría", type="primary"):
                     st.bar_chart(df_graficos.set_index("Company Name")[['ICOW Base', 'ICOW Total']])
                 with col2:
                     st.subheader("Estado de Operatividad (Determinista)")
-                    st.bar_chart(df_graficos['Auditoría: Canal Operativo'].value_counts(), color="#ffaa00")
+                    # Ora usa la colonna rinominata senza i due punti
+                    st.bar_chart(df_graficos['Canal Operativo'].value_counts(), color="#ffaa00")
 
             st.subheader("📋 Matriz de Datos")
             st.dataframe(df_resultados, use_container_width=True)
