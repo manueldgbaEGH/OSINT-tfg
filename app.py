@@ -1,5 +1,4 @@
 import streamlit as st
-import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 import urllib.parse
@@ -9,288 +8,246 @@ import PyPDF2
 import json
 from google import genai
 from google.genai import types
-from datetime import datetime
+
+# AÑADIDO: Librería para buscar en internet
+try:
+    from duckduckgo_search import DDGS
+    BUSCADOR_DISPONIBLE = True
+except ImportError:
+    BUSCADOR_DISPONIBLE = False
 
 # ==========================================
-# CONFIGURACIÓN Y MEMORIA HISTÓRICA
+# INTERFAZ DEL PANEL DE MANDO FORENSE
 # ==========================================
-st.set_page_config(page_title="Auditor TFG - Ley 2/2023", page_icon="🕵️‍♂️", layout="wide")
+st.set_page_config(page_title="Panel OSINT Forense", page_icon="⚖️", layout="wide")
 
-if 'historial_datos' not in st.session_state:
-    st.session_state.historial_datos = pd.DataFrame()
+st.title("⚖️ Panel OSINT Forense: Prevención del Delito Corporativo")
+st.markdown("Herramienta de investigación individual para revisores públicos. Analiza el cumplimiento normativo (Ley 2/2023) y rastrea la huella digital en busca de antecedentes, sanciones o alertas de riesgo.")
 
-st.title("🕵️‍♂️ Auditor OSINT: Canales de Denuncia (Ley 2/2023)")
-st.markdown("Herramienta de análisis metodológico con memoria histórica y control de IA para el Trabajo de Fin de Grado.")
-
-# ==========================================
-# BARRA LATERAL
-# ==========================================
 with st.sidebar:
     st.header("⚙️ Configuración")
-    api_key_usuario = st.text_input("1. Introduce tu API Key de Gemini:", type="password")
-    archivo_subido = st.file_uploader("2. Sube tu base de datos (Excel SABI)", type=["xlsx"])
-    
-    st.markdown("---")
-    st.header("🎛️ Parámetros Metodológicos")
-    rondas_ia = st.slider("Rondas de Consenso IA (Precisión vs Agilidad):", min_value=1, max_value=5, value=3)
-    st.info("El archivo debe contener las columnas 'Company Name' y 'Web' o 'Web site'.")
+    api_key_usuario = st.text_input("Introduce tu API Key de Gemini:", type="password")
+    st.info("Herramienta configurada para análisis forense individual en profundidad.")
+
+st.markdown("---")
+st.subheader("🎯 Objetivo de la Investigación")
+
+col1, col2 = st.columns(2)
+with col1:
+    empresa = st.text_input("Nombre de la Empresa (Ej. Iberdrola, Mercadona):")
+with col2:
+    url_base = st.text_input("Página Web (Ej. https://www.empresa.com):")
 
 # ==========================================
-# MOTOR DEL PROGRAMA
+# MOTOR FORENSE (DOBLE VÍA)
 # ==========================================
-if st.button("🚀 Iniciar Auditoría", type="primary"):
-    if not api_key_usuario or not archivo_subido:
-        st.error("⚠️ Por favor, introduce tu API Key y sube un archivo Excel para comenzar.")
+if st.button("🔍 Iniciar Auditoría Forense Profunda", type="primary"):
+    
+    if not api_key_usuario or not empresa or not url_base:
+        st.error("⚠️ Falta la API Key, el nombre de la empresa o la URL.")
+    elif not BUSCADOR_DISPONIBLE:
+        st.error("⚠️ Falta instalar 'duckduckgo-search' en el archivo requirements.txt")
     else:
         cliente_ia = genai.Client(api_key=api_key_usuario)
-        df = pd.read_excel(archivo_subido)
-        datos_finales = []
         
-        palabras_fuertes = ['denuncia', 'whistleblowing', 'etico', 'ética', 'compliance']
-        secciones_sospechosas = ['contacto', 'legal', 'sostenibilidad', 'corporativo', 'empresa', 'rsc']
-        
-        tiempo_inicio = time.time()
-        barra_progreso = st.progress(0, text="Iniciando auditoría...")
-        total_empresas = len(df)
-        timestamp_ejecucion = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
-        st.subheader("⏳ Procesamiento en Tiempo Real")
-        contenedor_resultados = st.container()
-        
-        for index, row in df.iterrows():
-            empresa = row['Company Name'] 
-            url_base = row['Web site'] if 'Web site' in df.columns else row.get('Web')
+        # Limpieza de URL
+        if not str(url_base).startswith('http'):
+            url_base = 'https://' + str(url_base)
             
-            url_canal = "No encontrado"
-            canal_operativo = "No" 
-            anonimato_ok = "No"
-            confidencialidad_ok = "No"
-            evidencia_anonimato = "N/A"
-            evidencia_confidencialidad = "N/A"
+        barra_progreso = st.progress(0, text="Iniciando motores de inteligencia...")
+        
+        # =================================================================
+        # MOTOR 1: BÚSQUEDA DE ANTECEDENTES Y SANCIONES (WEB GENERAL)
+        # =================================================================
+        barra_progreso.progress(20, text="Fase 1: Rastreando huella digital y antecedentes en internet...")
+        
+        alertas_ia = {}
+        try:
+            # Creamos un "Google Dork" para buscar fraudes
+            query_riesgo = f'"{empresa}" AND (sanción OR multa OR fraude OR CNMC OR "Inspección de Trabajo" OR condena)'
             
-            puntuacion_base = 0  
-            puntuacion_ia = 0    
+            with DDGS() as ddgs:
+                resultados_raw = list(ddgs.text(query_riesgo, region='es-es', max_results=10))
+            
+            if resultados_raw:
+                # Le pasamos los resultados a la IA para que haga de filtro forense
+                prompt_riesgo = f"""
+                Eres un analista de inteligencia criminal. Revisa estos resultados de búsqueda sobre la empresa "{empresa}".
+                Busca ÚNICAMENTE información sobre multas, sanciones, fraudes, investigaciones o problemas legales.
+                Ignora noticias de auto-promoción o marketing.
+                Responde EXCLUSIVAMENTE con un JSON válido con esta estructura:
+                {{
+                    "alerta_detectada": "SÍ" o "NO",
+                    "hallazgos": [
+                        {{
+                            "riesgo": "Resumen de la sanción o noticia (máx 2 líneas)",
+                            "fuente_url": "URL exacta de la noticia que te paso en los datos"
+                        }}
+                    ]
+                }}
+                Datos crudos de búsqueda: {json.dumps(resultados_raw)}
+                """
                 
-            if pd.notna(url_base):
-                if not str(url_base).startswith('http'):
-                    url_base = 'https://' + str(url_base)
-                    
-                try:
-                    headers = {
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                        'Accept-Language': 'es-ES,es;q=0.8,en-US;q=0.5,en;q=0.3',
-                        'Connection': 'keep-alive'
-                    } 
-                    respuesta = requests.get(url_base, headers=headers, timeout=15)
-                    soup = BeautifulSoup(respuesta.text, 'html.parser')
-                    
-                    enlaces = soup.find_all('a', href=True)
-                    canal_encontrado = None
-                    enlaces_secundarios = []
-                    
+                resp_riesgo = cliente_ia.models.generate_content(
+                    model='gemini-3.6-flash',
+                    contents=prompt_riesgo,
+                    config=types.GenerateContentConfig(temperature=0.0, response_mime_type="application/json")
+                )
+                json_riesgo = resp_riesgo.text.replace('```json', '').replace('```', '').strip()
+                alertas_ia = json.loads(json_riesgo)
+            else:
+                alertas_ia = {"alerta_detectada": "NO", "hallazgos": []}
+                
+        except Exception as e:
+            alertas_ia = {"alerta_detectada": "ERROR", "hallazgos": [{"riesgo": f"Error al buscar: {e}", "fuente_url": ""}]}
+
+        # =================================================================
+        # MOTOR 2: RASTREO PROFUNDO COMPLIANCE (LEY 2/2023)
+        # =================================================================
+        barra_progreso.progress(50, text="Fase 2: Extracción profunda del canal de denuncias...")
+        
+        puntuacion_icow = 0
+        canal_operativo = "No detectado"
+        anonimato_ok = "No"
+        confidencialidad_ok = "No"
+        citas_compliance = {}
+        url_canal = "No encontrado"
+        
+        try:
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+            }
+            respuesta = requests.get(url_base, headers=headers, timeout=15)
+            soup = BeautifulSoup(respuesta.text, 'html.parser')
+            enlaces = soup.find_all('a', href=True)
+            
+            palabras_fuertes = ['denuncia', 'whistleblowing', 'etico', 'ética', 'compliance']
+            enlaces_sospechosos = []
+            
+            # Recolectar enlaces interesantes
+            for enlace in enlaces:
+                href = enlace['href'].lower()
+                texto = enlace.get_text().lower()
+                url_absoluta = urllib.parse.urljoin(url_base, enlace['href'])
+                
+                if any(p in href or p in texto for p in palabras_fuertes):
+                    if url_absoluta not in enlaces_sospechosos:
+                        enlaces_sospechosos.append(url_absoluta)
+            
+            # Si no encuentra en portada, buscamos en legal o contacto
+            if not enlaces_sospechosos:
+                for sec in ['legal', 'contacto', 'corporativo']:
                     for enlace in enlaces:
-                        href = enlace['href'].lower()
-                        texto = enlace.get_text().lower()
-                        if any(p in href for p in palabras_fuertes) or any(p in texto for p in palabras_fuertes):
-                            canal_encontrado = urllib.parse.urljoin(url_base, enlace['href'])
-                            break 
-                        if any(sec in href for sec in secciones_sospechosas):
-                            enlaces_secundarios.append(urllib.parse.urljoin(url_base, enlace['href']))
+                        if sec in enlace['href'].lower():
+                            enlaces_sospechosos.append(urllib.parse.urljoin(url_base, enlace['href']))
+            
+            # Analizar el mejor enlace encontrado
+            texto_canal = ""
+            if enlaces_sospechosos:
+                url_canal = enlaces_sospechosos[0] # Tomamos el más relevante
+                puntuacion_icow += 20
+                
+                resp_canal = requests.get(url_canal, headers=headers, timeout=15)
+                soup_canal = BeautifulSoup(resp_canal.text, 'html.parser')
+                
+                # Operatividad
+                if soup_canal.find('form') or 'mailto:' in resp_canal.text:
+                    canal_operativo = "Sí (Formulario o Email detectado)"
+                    puntuacion_icow += 20
                     
-                    if not canal_encontrado and enlaces_secundarios:
-                        for url_secundaria in list(set(enlaces_secundarios))[:3]:
-                            try:
-                                time.sleep(1) 
-                                resp_sec = requests.get(url_secundaria, headers=headers, timeout=10)
-                                soup_sec = BeautifulSoup(resp_sec.text, 'html.parser')
-                                enlaces_sec = soup_sec.find_all('a', href=True)
-                                for e in enlaces_sec:
-                                    href_sec = e['href'].lower()
-                                    texto_sec = e.get_text().lower()
-                                    if any(p in href_sec for p in palabras_fuertes) or any(p in texto_sec for p in palabras_fuertes):
-                                        canal_encontrado = urllib.parse.urljoin(url_secundaria, e['href'])
-                                        break
-                                if canal_encontrado:
-                                    break 
-                            except:
-                                pass 
-                            
-                    if canal_encontrado:
-                        url_canal = canal_encontrado
-                        puntuacion_base += 20 
-                        
-                        try:
-                            time.sleep(1)
-                            resp_canal = requests.get(canal_encontrado, headers=headers, timeout=15)
-                            texto_canal = ""
-                            
-                            soup_canal_interior = BeautifulSoup(resp_canal.text, 'html.parser')
-                            if soup_canal_interior.find('form') or 'mailto:' in resp_canal.text:
-                                canal_operativo = "Sí"
-                                puntuacion_base += 20 
-        
-                            if canal_encontrado.lower().endswith('.pdf') or 'application/pdf' in resp_canal.headers.get('Content-Type', ''):
-                                pdf_archivo = io.BytesIO(resp_canal.content)
-                                lector = PyPDF2.PdfReader(pdf_archivo)
-                                for pagina in lector.pages:
-                                    texto_extraido = pagina.extract_text()
-                                    if texto_extraido:
-                                        texto_canal += texto_extraido
-                            else:
-                                texto_canal = soup_canal_interior.get_text()
-                            
-                            if texto_canal:
-                                texto_acotado = texto_canal[:15000] 
-                                prompt = f"""
-                                Eres un auditor estrictamente analítico. Lee el texto y responde ÚNICAMENTE con un objeto JSON válido.
-                                Extrae todas las frases que hablen de anonimato y confidencialidad indicando el apartado del que salen.
-                                Formato obligatorio:
-                                {{
-                                    "anonimato": "SÍ" o "NO",
-                                    "citas_anonimato": [{{"seccion": "nombre apartado", "cita": "Frase literal exacta"}}],
-                                    "confidencialidad": "SÍ" o "NO",
-                                    "citas_confidencialidad": [{{"seccion": "nombre apartado", "cita": "Frase literal exacta"}}]
-                                }}
-                                Texto: {texto_acotado}
-                                """
-                                
-                                resultados_rondas = []
-                                for ronda in range(rondas_ia):
-                                    try:
-                                        respuesta_ia = cliente_ia.models.generate_content(
-                                            model='gemini-3.6-flash',
-                                            contents=prompt,
-                                            config=types.GenerateContentConfig(
-                                                temperature=0.0,
-                                                response_mime_type="application/json"
-                                            )
-                                        )
-                                        json_texto = respuesta_ia.text.replace('```json', '').replace('```', '').strip()
-                                        resultados_rondas.append(json.loads(json_texto))
-                                        time.sleep(1)
-                                    except Exception:
-                                        time.sleep(2)
-                                
-                                if resultados_rondas:
-                                    votos_anon = sum(1 for r in resultados_rondas if r.get("anonimato", "NO").upper() == "SÍ")
-                                    votos_conf = sum(1 for r in resultados_rondas if r.get("confidencialidad", "NO").upper() == "SÍ")
-                                    
-                                    todas_citas_anon = []
-                                    todas_citas_conf = []
-                                    
-                                    for r in resultados_rondas:
-                                        for cita in r.get("citas_anonimato", []):
-                                            texto_cita = f"[{cita.get('seccion', 'N/A')}] {cita.get('cita', '')}"
-                                            if texto_cita not in todas_citas_anon and len(cita.get('cita', '')) > 5:
-                                                todas_citas_anon.append(texto_cita)
-                                        for cita in r.get("citas_confidencialidad", []):
-                                            texto_cita = f"[{cita.get('seccion', 'N/A')}] {cita.get('cita', '')}"
-                                            if texto_cita not in todas_citas_conf and len(cita.get('cita', '')) > 5:
-                                                todas_citas_conf.append(texto_cita)
-                                    
-                                    mayoria = (rondas_ia // 2) + 1
-                                            
-                                    if votos_anon >= mayoria:
-                                        puntuacion_ia += 30
-                                        anonimato_ok = "Sí"
-                                        evidencia_anonimato = " | ".join(todas_citas_anon) if todas_citas_anon else "Evidencia detectada"
-                                        
-                                    if votos_conf >= mayoria:
-                                        puntuacion_ia += 30
-                                        confidencialidad_ok = "Sí"
-                                        evidencia_confidencialidad = " | ".join(todas_citas_conf) if todas_citas_conf else "Evidencia detectada"
-                                        
-                        except Exception:
-                            pass
-                except Exception:
-                    url_canal = "Error de conexión"
+                # Extracción PDF o HTML
+                if url_canal.lower().endswith('.pdf') or 'application/pdf' in resp_canal.headers.get('Content-Type', ''):
+                    pdf_archivo = io.BytesIO(resp_canal.content)
+                    lector = PyPDF2.PdfReader(pdf_archivo)
+                    for pagina in lector.pages[:10]: # Leemos hasta 10 páginas
+                        t = pagina.extract_text()
+                        if t: texto_canal += t
+                else:
+                    texto_canal = soup_canal.get_text()
+                    
+            barra_progreso.progress(80, text="Fase 3: Evaluación de la Inteligencia Artificial (Criminológica)...")
             
-            puntuacion_total = puntuacion_base + puntuacion_ia
-            
-            with contenedor_resultados:
-                st.write(f"🏢 **{empresa}** -> **ICOW Base (Sin IA):** {puntuacion_base}/40 | **ICOW Total:** {puntuacion_total}/100")
-            
-            fila_resultado = row.to_dict()
-            fila_resultado.update({
-                'ID_Ejecución': timestamp_ejecucion,
-                'Rondas_IA': rondas_ia,
-                'Auditoría: URL del Canal': url_canal,
-                'Auditoría: Canal Operativo': canal_operativo,
-                'Auditoría: ICOW Base (SIN IA)': puntuacion_base,
-                'Auditoría: Anonimato': anonimato_ok,
-                'Auditoría: Cita Anonimato': evidencia_anonimato,
-                'Auditoría: Confidencialidad': confidencialidad_ok,
-                'Auditoría: Cita Confidencialidad': evidencia_confidencialidad,
-                'Auditoría: Puntuación ICOW TOTAL': puntuacion_total
-            })
-            datos_finales.append(fila_resultado)
-            
-            progreso_actual = (index + 1) / total_empresas
-            tiempo_transcurrido = time.time() - tiempo_inicio
-            tiempo_por_empresa = tiempo_transcurrido / (index + 1)
-            tiempo_restante_segundos = tiempo_por_empresa * (total_empresas - (index + 1))
-            
-            minutos = int(tiempo_restante_segundos // 60)
-            segundos = int(tiempo_restante_segundos % 60)
-            porcentaje = int(progreso_actual * 100)
-            
-            texto_barra = f"Procesando: {porcentaje}% completado | Tiempo estimado restante: {minutos} min {segundos} seg"
-            barra_progreso.progress(progreso_actual, text=texto_barra)
-            
-        st.balloons()
-        df_resultados = pd.DataFrame(datos_finales)
-        st.session_state.historial_datos = pd.concat([st.session_state.historial_datos, df_resultados], ignore_index=True)
-        
+            # IA Analiza el Canal
+            if texto_canal:
+                prompt_canal = f"""
+                Eres un auditor legal de compliance.
+                Texto extraído: {texto_canal[:15000]}
+                Devuelve ÚNICAMENTE un JSON:
+                {{
+                    "anonimato": "SÍ" o "NO",
+                    "cita_anonimato": "Frase literal",
+                    "confidencialidad": "SÍ" o "NO",
+                    "cita_confidencialidad": "Frase literal"
+                }}
+                """
+                resp_canal_ia = cliente_ia.models.generate_content(
+                    model='gemini-3.6-flash',
+                    contents=prompt_canal,
+                    config=types.GenerateContentConfig(temperature=0.0, response_mime_type="application/json")
+                )
+                citas_compliance = json.loads(resp_canal_ia.text.replace('```json', '').replace('```', '').strip())
+                
+                if citas_compliance.get("anonimato") == "SÍ":
+                    puntuacion_icow += 30
+                    anonimato_ok = "Sí"
+                if citas_compliance.get("confidencialidad") == "SÍ":
+                    puntuacion_icow += 30
+                    confidencialidad_ok = "Sí"
+
+        except Exception as e:
+            url_canal = f"Error en rastreo: {e}"
+
+        barra_progreso.progress(100, text="Investigación finalizada.")
+        time.sleep(1)
+        barra_progreso.empty()
+
         # ==========================================
-        # DASHBOARD FINAL (TABLAS Y RAZONAMIENTOS)
+        # DASHBOARD DE RESULTADOS
         # ==========================================
         st.markdown("---")
-        tab1, tab2 = st.tabs(["📊 Análisis Actual", "📚 Memoria Histórica"])
+        st.header(f"📑 Informe de Inteligencia: {empresa}")
         
+        tab1, tab2 = st.tabs(["🚨 Alertas de Riesgo (Antecedentes)", "🛡️ Auditoría Compliance (Ley 2/2023)"])
+        
+        # PESTAÑA 1: FORENSE / RIESGOS
         with tab1:
-            st.header(f"Resultados de la muestra actual ({rondas_ia} Rondas IA)")
-            if not df_resultados.empty:
-                df_graficos = df_resultados.copy()
-                df_graficos.rename(columns={
-                    'Auditoría: Puntuación ICOW TOTAL': 'ICOW Total', 
-                    'Auditoría: ICOW Base (SIN IA)': 'ICOW Base',
-                    'Auditoría: Canal Operativo': 'Canal Operativo'
-                }, inplace=True)
+            st.subheader("Monitorización de Sanciones y Reputación")
+            if alertas_ia.get("alerta_detectada") == "SÍ":
+                st.error("⚠️ **¡ATENCIÓN!** Se han detectado posibles antecedentes, sanciones o investigaciones asociadas a esta empresa.")
+                for hallazgo in alertas_ia.get("hallazgos", []):
+                    st.warning(f"**Riesgo:** {hallazgo.get('riesgo')}")
+                    # ESTE ES EL ENLACE CLICABLE DE LA FUENTE
+                    st.markdown(f"🔗 **Fuente / Prueba:** [{hallazgo.get('fuente_url')}]({hallazgo.get('fuente_url')})")
+                    st.markdown("---")
+            elif alertas_ia.get("alerta_detectada") == "NO":
+                st.success("🟢 No se han encontrado registros destacados de multas, sanciones o fraudes en fuentes abiertas recientes.")
+            else:
+                st.info("No se pudo realizar la búsqueda de antecedentes.")
                 
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.subheader("Comparativa: ICOW Base vs Total")
-                    st.bar_chart(df_graficos.set_index("Company Name")[['ICOW Base', 'ICOW Total']])
-                with col2:
-                    st.subheader("Estado de Operatividad")
-                    st.bar_chart(df_graficos['Canal Operativo'].value_counts(), color="#ffaa00")
-
-            st.subheader("📋 Matriz de Datos")
-            st.dataframe(df_resultados, use_container_width=True)
-
-            st.markdown("---")
-            st.subheader("🔍 Análisis Detallado y Justificación Jurídica")
-            for index, row in df_resultados.iterrows():
-                with st.expander(f"🏢 {row['Company Name']} - Base: {row['Auditoría: ICOW Base (SIN IA)']} | Total: {row['Auditoría: Puntuación ICOW TOTAL']}"):
-                    st.write(f"**URL:** {row['Auditoría: URL del Canal']} | **Operativo:** {row['Auditoría: Canal Operativo']}")
-                    st.write(f"**Anonimato:** {row['Auditoría: Anonimato']}")
-                    st.info(f"{row['Auditoría: Cita Anonimato']}")
-                    st.write(f"**Confidencialidad:** {row['Auditoría: Confidencialidad']}")
-                    st.success(f"{row['Auditoría: Cita Confidencialidad']}")
-
-            output = io.BytesIO()
-            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                df_resultados.to_excel(writer, index=False)
-            st.download_button("📥 Descargar Excel (Muestra Actual)", data=output.getvalue(), file_name="Auditoria_Actual.xlsx")
-
+        # PESTAÑA 2: COMPLIANCE
         with tab2:
-            st.header("Histórico de todas las pruebas")
-            st.write("Aquí se acumulan todas las pruebas que hagas mientras no cierres esta pestaña web.")
-            st.dataframe(st.session_state.historial_datos, use_container_width=True)
+            st.subheader(f"Índice de Cumplimiento Observable en Web (ICOW): {puntuacion_icow}/100")
             
-            if not st.session_state.historial_datos.empty:
-                output_hist = io.BytesIO()
-                with pd.ExcelWriter(output_hist, engine='xlsxwriter') as writer:
-                    st.session_state.historial_datos.to_excel(writer, index=False)
-                st.download_button("📥 Descargar TODO el Histórico Consolidado", data=output_hist.getvalue(), file_name="Historico_Global_TFG.xlsx", type="primary")
+            if puntuacion_icow >= 80:
+                st.success("Cultura de Compliance: ALTA")
+            elif puntuacion_icow >= 40:
+                st.warning("Cultura de Compliance: MEDIA")
+            else:
+                st.error("Cultura de Compliance: BAJA")
+                
+            st.write(f"**URL del Canal Analizado:** {url_canal}")
+            st.write(f"**Operatividad de Envío:** {canal_operativo}")
+            
+            col_a, col_b = st.columns(2)
+            with col_a:
+                st.markdown("### 🕵️‍♂️ Garantía de Anonimato")
+                st.write(f"**Veredicto:** {anonimato_ok}")
+                if citas_compliance.get("cita_anonimato"):
+                    st.info(f'"{citas_compliance.get("cita_anonimato")}"')
+                    
+            with col_b:
+                st.markdown("### 🔐 Garantía de Confidencialidad")
+                st.write(f"**Veredicto:** {confidencialidad_ok}")
+                if citas_compliance.get("cita_confidencialidad"):
+                    st.success(f'"{citas_compliance.get("cita_confidencialidad")}"')
